@@ -94,6 +94,15 @@ function denyRecovery(fileId) {
 
 
 // =====================================================
+// GET ALL RECOVERY REQUESTS
+// =====================================================
+
+function getAllRecoveryRequests() {
+    return Array.from(recoveryRequests.values());
+}
+
+
+// =====================================================
 // EXPORTS
 // =====================================================
 
@@ -101,5 +110,6 @@ module.exports = {
     createRecoveryRequest,
     getRecoveryRequest,
     approveRecovery,
-    denyRecovery
+    denyRecovery,
+    getAllRecoveryRequests
 };

@@ -1,274 +1,215 @@
 # 🔐 Quantum Vault
 
-**A Secure File Vault with AES-256 Encryption, Key Fragmentation, and Dead-Man Switch Recovery**
+**A Full-Stack Cryptographic File Vault with AES-256 Encryption, 3-Way XOR Key Fragmentation, Manual Three-Key Decryption Wizard, Dead-Man Switch Heartbeat, and Emergency Recovery**
 
-Quantum Vault is a Node.js and Express-based secure file storage prototype designed to protect sensitive files through encryption and controlled recovery workflows. It combines AES-256-CBC encryption, XOR-based encryption-key fragmentation, distributed fragment storage, a dead-man switch, and recovery request management.
+Quantum Vault is a cybersecurity application featuring an Express.js backend and a dark-graphite dashboard. It protects sensitive files through symmetric encryption, distributed multi-location key fragmentation, strict manual three-fragment decryption, an automated dead-man switch countdown with proactive reminders, and an access-controlled recovery workflow.
 
-> **Note:** Quantum Vault explores security mechanisms relevant to secure storage. The current implementation does not establish full post-quantum cryptographic security.
+> **Security Transparency Notice:** Quantum Vault is an educational and security-research prototype exploring key fragmentation and access-control patterns. As documented below, it uses AES-256-CBC and 3-way XOR secret sharing. It does not provide post-quantum security or authenticated encryption in its current implementation.
 
-## ✨ Features
+---
 
-- **AES-256-CBC Encryption:** Encrypts uploaded files using a randomly generated 256-bit AES key.
-- **Random IV Generation:** Generates a 128-bit Initialization Vector for CBC encryption.
-- **XOR-Based Key Fragmentation:** Splits the encryption key into three fragments.
-- **Multi-Location Fragment Storage:** Stores fragments across local storage, backup storage, and application memory.
-- **Dead-Man Switch:** Tracks check-ins and expires file-related timer states when the deadline passes.
-- **Recovery Management:** Supports creating, checking, approving, and denying recovery requests.
-- **REST API:** Provides endpoints for uploading, decrypting, and managing protected files.
+## ✨ System Features
+
+### 1. Six Distinct Application Views
+- **Dashboard:** High-level cybersecurity overview showing system health, active dead-man switches, vault storage statistics, and recently protected files. Uses empty states when no files exist.
+- **Secure Vault (Upload & Encrypt):** Large drag-and-drop zone with multi-file support, real-time progress bar, file ID generation, and immediate plaintext deletion. Never displays raw keys or key fragments on the upload screen.
+- **Decrypt Files (Strict Manual Three-Key Decryption):** Dedicated 4-step wizard that enforces manual, sequential entry of all three required key fragments. Never auto-fetches or prefills keys from the server.
+- **Dead-Man Switch:** Centralized heartbeat monitoring station featuring a prominent **CHECK IN NOW** hero action, real-time countdown tickers, last check-in timestamps, configured timeouts, next deadlines, and an interactive approaching-deadline reminder modal.
+- **Persistent Notification Center:** Universal top bar with latest event snippet, slide-out notification drawer, and a full-page notification audit log with filtering by severity (Alerts, Success, Errors).
+- **Recovery Center:** Custodian portal to lodge emergency recovery requests, inspect pending petitions, and approve or deny emergency decryption access.
+
+### 2. Cryptographic Architecture
+- **AES-256-CBC File Encryption:** Encrypts uploaded files on-the-fly using a unique, cryptographically random 256-bit AES key.
+- **Unique 128-bit IV Generation:** Generates a unique Initialization Vector per file, stored in `storage/keys/{fileId}.iv`.
+- **3-Way XOR Key Splitting:** Partitions the 256-bit AES key into 3 fragments using XOR logic ($K = F_1 \oplus F_2 \oplus F_3$). All three fragments are required for key reconstruction.
+- **Multi-Location Fragment Distribution:**
+  - **Fragment 1:** Persistent local disk storage (`storage/keys/{fileId}.part1`).
+  - **Fragment 2:** Redundant backup storage (`storage/backup/{fileId}.part2`).
+  - **Fragment 3:** Volatile process memory (RAM `Map`) + custodian copy (`storage/keys/{fileId}.part3`).
+- **Path Traversal Protection:** All file identifiers and endpoints are strictly validated against alphanumeric UUID patterns to eliminate directory traversal risks.
+
+---
 
 ## 🛠️ Technology Stack
 
-| Technology | Purpose |
-|---|---|
-| Node.js | JavaScript runtime |
-| Express.js | Backend server and REST API |
-| Node.js Crypto | Encryption, random key generation, IV generation, and XOR-related cryptographic operations |
-| Multer | Handling file uploads |
-| File System (`fs`) | Encrypted-file and fragment storage |
-| JavaScript Maps | In-memory fragment and recovery-state management |
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Backend Runtime** | Node.js (CommonJS) | Server runtime |
+| **HTTP Framework** | Express 5.x | REST API & static asset server |
+| **Cryptography** | Node.js `crypto` | AES-256-CBC, CSPRNG randomBytes, XOR fragment reconstruction |
+| **File Ingestion** | Multer 2.x | Multipart form-data handling with 50MB size enforcement |
+| **Frontend UI** | HTML5, Vanilla CSS3, Modern JS | Clean dark-graphite dashboard without framework dependencies |
+| **State & Storage** | Local filesystem & Node.js Memory | Ciphertext, metadata, disk fragments, and volatile RAM fragments |
 
-## 🏗️ Architecture
+---
 
-```text
-                   Client
-                     |
-                     v
-              Express.js Server
-                     |
-             File Upload Endpoint
-                     |
-                     v
-             AES-256-CBC Encryption
-                /           \
-               v             v
-        Encrypted File    Random IV
-          (.enc file)    (stored separately)
-               |
-               v
-        Generate AES Key
-               |
-               v
-        XOR Key Fragmentation
-               |
-        +------+------+ 
-        |      |      |
-        v      v      v
-    Fragment Fragment Fragment
-        1      2      3
-        |      |      |
-        v      v      v
-      Local  Backup   RAM
-      Disk    Disk   Memory
+## 🔑 Decrypt Files — Strict Manual Three-Key Wizard
 
-               |
-               v
-        Dead-Man Switch
-               |
-               v
-        Recovery Management
-               |
-               v
-        Authorized Decryption
-```
-
-## 🔑 Encryption and Key Management
-
-### 1. AES-256-CBC
-
-Quantum Vault uses the Advanced Encryption Standard (AES) with a 256-bit key in Cipher Block Chaining (CBC) mode.
-
-- **Algorithm:** AES-256-CBC
-- **Key size:** 256 bits (32 bytes)
-- **IV size:** 128 bits (16 bytes)
-
-The encryption key is generated using a cryptographically secure random-number generator. The IV is generated separately.
-
-### 2. Initialization Vector (IV)
-
-The Initialization Vector is a 16-byte value required by AES-CBC.
-
-Its purpose is to initialize the CBC encryption process so that encrypting the same plaintext with the same key can produce different ciphertext when a fresh, unpredictable IV is used.
-
-The IV is not a secret key and does not need to be confidential. However, it must be retained alongside the encrypted data so that the file can be decrypted later.
-
-### 3. XOR-Based Key Fragmentation
-
-The generated 256-bit AES key is split into three fragments using XOR operations.
-
-Let the original key be \(K\), and the fragments be \(F_1\), \(F_2\), and \(F_3\).
-
-The reconstruction operation is:
-
-`K = F1 XOR F2 XOR F3`
-
-All three fragments are required by the current reconstruction implementation.
-
-| Fragment | Storage location |
-|---|---|
-| Fragment 1 | `storage/keys/` |
-| Fragment 2 | `storage/backup/` |
-| Fragment 3 | Application RAM |
-
-The objective is to avoid storing the entire encryption key as a single persistent value. However, the protection this provides depends on access controls and the separation of the storage locations.
-
-**Important:** This is a three-fragment XOR scheme, not a threshold-based secret-sharing scheme. Loss of any fragment prevents reconstruction using the current method.
-
-## ⏱️ Dead-Man Switch
-
-The dead-man switch tracks check-ins for protected files.
-
-Its current implementation uses a 60-second demonstration timeout.
-
-The workflow is:
-
-1. Start the timer for a file.
-2. Record periodic check-ins.
-3. Reset the deadline when a check-in is received.
-4. Mark the timer state as `expired` if the deadline passes.
-5. Allow the application to inspect the resulting state.
-
-The current expiration behavior changes the timer state and logs a message. It does not automatically delete files, destroy encryption keys, or notify a trusted contact.
-
-## ♻️ Recovery Workflow
-
-Quantum Vault includes a recovery request mechanism for managing access to protected files.
-
-The general workflow is:
-
-1. Create a recovery request for a file.
-2. Track its status.
-3. Approve or deny the request.
-4. Attempt decryption after the required approval check.
-5. Reconstruct the encryption key from its fragments and decrypt the file.
-
-Recovery requests are maintained in application memory in the current implementation, so they are not guaranteed to survive a server restart.
-
-## 📁 Project Structure
+The Decrypt Files interface enforces strict manual key entry:
 
 ```text
-quantum-vault/
-├── server.js
-├── routes/
-│   └── vault.js
-├── core/
-│   ├── encrypt.js
-│   ├── keySplitter.js
-│   ├── fragmentStore.js
-│   ├── deadManSwitch.js
-│   └── recoveryManager.js
-├── storage/
-│   ├── keys/
-│   └── backup/
-├── package.json
-└── README.md
+Step A: Select Encrypted File from Vault
+   │
+   ▼
+Step 1: Enter Key Fragment 1 (Masked, eye toggle, 32-byte Base64/Hex validation)
+   │  [Continue]
+   ▼
+Step 2: Enter Key Fragment 2 (Masked, eye toggle, 32-byte Base64/Hex validation)
+   │  [Continue]
+   ▼
+Step 3: Enter Key Fragment 3 (Masked, eye toggle, 32-byte Base64/Hex validation)
+   │  [Continue]
+   ▼
+Step 4: Final Confirmation Screen
+   │  [Click "Decrypt File"]
+   ▼
+Reconstruct Key ($K = F_1 \oplus F_2 \oplus F_3$) & Execute Decryption
+   │
+   ├─► Success: Inline Text Preview (<512KB) + Download Decrypted File
+   └─► Failure: Safe rejection (HTTP 400), key fields cleared from UI memory
 ```
 
-The structure above represents the principal modules discussed in the project. Check the repository for any additional files or differences in the current directory layout.
+### Key Security Guarantees:
+1. **Zero Auto-Fetch:** The decryption page never requests, fetches, or auto-populates key fragments from the server or local storage.
+2. **Ephemeral In-Memory State:** Key fragment values exist only in volatile JavaScript variables during the wizard session.
+3. **No Secret Persistence:** Key fragments are never saved in `localStorage`, `sessionStorage`, cookies, URLs, console logs, or notification history.
+4. **Immediate Purge:** All three key fragment fields are cleared from in-memory UI state immediately upon clicking Decrypt File or Reset.
+5. **Format Validation:** Accepts 32-byte keys formatted either as 44-character Base64 strings or 64-character Hexadecimal strings.
+
+---
+
+## ⏱️ Dead-Man Switch & Heartbeat Notifications
+
+Every uploaded file automatically starts an active 60-second Dead-Man Switch.
+
+- **Check-in Action:** Clicking **CHECK IN NOW** sends `POST /checkin` with `{ "fileId": "<UUID>" }`. The backend resets the 60-second deadline and returns confirmation.
+- **Proactive Reminder Modal:** When an active switch reaches $\le 20$ seconds before expiration, a non-blocking reminder modal appears with:
+  - **Check In Now:** Immediately executes the check-in request and closes the modal upon server confirmation.
+  - **Remind Me Later:** Snoozes the reminder modal for 10 seconds without falsely extending the server-side deadline.
+- **Expiration:** If the timer reaches 0 without a check-in, the switch transitions to `expired` status and enters the emergency recovery state.
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
-- Node.js
-- npm
-- Git
+- Node.js (v18 or higher recommended; tested on v24)
+- npm (v9 or higher)
 
 ### Installation
-
-Clone the repository:
-
+Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/chetanXglitch/quantum-vault.git
 cd quantum-vault
-```
-
-Install the project dependencies:
-
-```bash
 npm install
 ```
 
 ### Running the Server
-
-Start the application using the command configured in your project:
-
+Start the unified application (serves both API and Frontend):
 ```bash
-node server.js
+npm start
 ```
+The application will be accessible in your browser at:
+👉 **`http://localhost:3000`**
 
-The server is configured to listen on port `3000`.
-
-For local development, the application should be accessible at:
-
-`http://localhost:3000`
-
-Use only the routes and HTTP methods actually defined in `routes/vault.js`. Refer to that file for the exact API request formats.
-
-## 🔌 API Overview
-
-The project includes the following API operations:
-
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/upload` | POST | Upload and encrypt a file |
-| `/decrypt` | POST | Request file decryption |
-| `/recovery/request` | POST | Create a recovery request |
-| `/recovery/status/:fileId` | GET | Check recovery status |
-| `/recovery/approve` | POST | Approve a recovery request |
-| `/recovery/deny` | POST | Deny a recovery request |
-
-These paths describe the implemented route names. Required parameters, request bodies, authentication requirements, and response formats should be verified in the route definitions.
-
-## 🛡️ Security Considerations
-
-Quantum Vault is a security-focused prototype, not a production-ready storage service.
-
-- **Encryption integrity:** AES-CBC does not authenticate ciphertext. Consider migrating to AES-256-GCM or implementing a correctly designed encrypt-then-MAC construction.
-- **Key separation:** Storing fragments in separate directories does not guarantee security if an attacker can access the entire machine.
-- **RAM persistence:** The third fragment is lost when the Node.js process terminates, potentially making stored files unrecoverable.
-- **Recovery authorization:** Recovery approvals need strong authentication, authorization, and audit logging.
-- **Plaintext handling:** Temporary uploaded files and decrypted output require appropriate permissions, cleanup, and access controls.
-- **IV handling:** Generate a fresh, unpredictable IV for each CBC encryption under the same key.
-- **Secret management:** Production deployments require a robust key-management and backup strategy.
-- **Dead-man switch reliability:** Timers, persistent state, restart behavior, and notification mechanisms need additional safeguards.
-
-### Is Quantum Vault Post-Quantum Secure?
-
-Not in its current form based on the implemented modules described here.
-
-AES-256 remains a strong symmetric encryption algorithm, including in the context of known quantum search attacks. However, the project does not become post-quantum secure merely by using AES-256 or splitting its key.
-
-A fuller post-quantum design would need to specify and implement appropriate post-quantum cryptographic mechanisms where required, such as standardized ML-KEM for key establishment. Its security would also depend on the complete system design and implementation.
-
-## 🎯 Project Objectives
-
-- Explore secure file encryption and decryption.
-- Understand symmetric cryptography and initialization vectors.
-- Implement encryption-key fragmentation and reconstruction.
-- Study file-storage security and in-memory secret management.
-- Design a timed check-in mechanism.
-- Implement a recovery-request workflow.
-- Identify practical security limitations and possible improvements.
-
-## 🔮 Future Enhancements
-
-- Replace CBC encryption with authenticated encryption using AES-256-GCM.
-- Implement persistent, access-controlled key management.
-- Introduce a properly designed threshold secret-sharing mechanism if partial recovery is required.
-- Add user authentication, role-based authorization, and secure recovery approvals.
-- Add audit logging and security-event monitoring.
-- Improve crash recovery and timer persistence.
-- Explore standardized post-quantum key establishment and hybrid cryptographic designs.
-- Add automated tests, API documentation, and security testing.
-
-## 👨‍💻 Author
-
-**Chetan BN**
-
-GitHub: [@chetanXglitch](https://github.com/chetanXglitch)
-
-Project: [Quantum Vault](https://github.com/chetanXglitch/quantum-vault)
+To specify a custom port:
+```bash
+PORT=8080 npm start
+```
 
 ---
 
-*Quantum Vault is intended for educational and authorized security research. Do not use it to protect sensitive production data without a thorough security review.*
+## 🧪 Testing and Verification
+
+The repository includes a comprehensive test suite covering cryptographic primitives, key splitting, storage handlers, and API routes.
+
+Run all tests:
+```bash
+# On Windows PowerShell:
+cmd /c npm test
+
+# On Linux / macOS / Bash:
+npm test
+```
+
+### Test Suites Included:
+1. **`test-encryption.js`**: Validates AES-256-CBC cipher stream encryption and decryption.
+2. **`test-split.js`**: Validates 3-way XOR splitting and bit-for-bit key reconstruction.
+3. **`test-storage.js`**: Validates multi-location fragment storage (Disk, Backup, RAM) and teardown.
+4. **`test-api.js`**: Comprehensive 12-stage integration suite:
+   - `GET /health` service handshake.
+   - `POST /upload` multipart file encryption and ciphertext validation.
+   - `GET /files` metadata listing with fragment availability flags.
+   - `GET /deadman/status/:fileId` countdown query.
+   - `POST /checkin` active switch reset and 404 rejection for unknown IDs.
+   - Path traversal prevention across all routes (UUID regex verification).
+   - Recovery request creation, pending state decryption blocking (403), approval, and authorization.
+   - Decrypted payload verification against original plaintext.
+   - Encrypted ciphertext download (`?type=encrypted`).
+   - Safe text preview (`GET /preview/:fileId`).
+   - Manual three-fragment decryption workflow with corrupted fragment rejection (`400 Bad Request`) and valid fragment reconstruction.
+
+---
+
+## 🔌 API Reference
+
+### Health & Inventory
+- **`GET /health`**: Returns service status, uptime, and timestamp.
+- **`GET /files`**: Returns a list of all protected files, metadata, fragment availability (`part1Disk`, `part2Backup`, `part3Ram`), Dead-Man switch status, and recovery state. Never exposes raw keys or fragments.
+
+### File Operations
+- **`POST /upload`**: Uploads and encrypts a file (`multipart/form-data` with `file` field). Returns `{ fileId, encryptedFile, originalName, size }`.
+- **`POST /decrypt`**: Decrypts `{fileId}.enc` to `{fileId}.decrypted`.
+  - Manual 3-key mode: `{ "fileId": "<UUID>", "fragment1": "<base64/hex>", "fragment2": "<base64/hex>", "fragment3": "<base64/hex>" }`
+  - Automated mode: `{ "fileId": "<UUID>" }` (uses stored fragments if available).
+- **`GET /preview/:fileId`**: Returns safe inline text preview (`{ canPreview: boolean, mimeType, content, message }`). Supports text/json/markdown < 512KB.
+- **`GET /download/:fileId`**: Downloads the decrypted file (with original filename) or encrypted ciphertext (`?type=encrypted`).
+
+### Dead-Man Switch
+- **`POST /checkin`**: Resets the 60-second countdown for an active switch.
+  - Body: `{ "fileId": "<UUID>" }`
+- **`GET /deadman/status/:fileId`**: Returns real-time status, deadline, and remaining milliseconds.
+
+### Recovery Center
+- **`POST /recovery/request`**: Lodges an emergency recovery request for a file.
+  - Body: `{ "fileId": "<UUID>" }`
+- **`GET /recovery/status/:fileId`**: Checks the status of a recovery request (`pending`, `approved`, `denied`).
+- **`GET /recovery/requests`**: Returns all active and historical recovery requests.
+- **`POST /recovery/approve`**: Approves a pending recovery request.
+  - Body: `{ "fileId": "<UUID>" }`
+- **`POST /recovery/deny`**: Denies a pending recovery request.
+  - Body: `{ "fileId": "<UUID>" }`
+
+---
+
+## 🛡️ Security Limitations & Production Recommendations
+
+Quantum Vault is designed as an architectural exploration of cryptographic workflows. Prior to any production deployment, the following limitations must be addressed:
+
+1. **Unauthenticated Cipher Mode:**
+   - *Current Implementation:* AES-256-CBC does not authenticate ciphertext blocks.
+   - *Recommendation:* Upgrade to an authenticated encryption mode such as **AES-256-GCM** or ChaCha20-Poly1305 with an authentication tag (AEAD).
+2. **Volatile In-Memory Key Fragments:**
+   - *Current Implementation:* Fragment 3 is stored in process RAM (`memoryFragments`) with a custodian copy in `storage/keys`. If the Node.js server restarts, RAM fragments are wiped and must be restored from custodian storage.
+   - *Recommendation:* In production, distribute Fragment 3 to an external Hardware Security Module (HSM), a dedicated KMS (e.g., HashiCorp Vault, AWS KMS), or a remote peer node.
+3. **Host Storage Separation:**
+   - *Current Implementation:* Storing Fragment 1 in `storage/keys` and Fragment 2 in `storage/backup` on the same physical host provides logical separation but no protection against host root compromise.
+   - *Recommendation:* Store fragments across physically isolated cloud availability zones or separate cryptographic enclaves.
+4. **Secret Sharing Scheme:**
+   - *Current Implementation:* 3-way XOR requires strictly 3 of 3 fragments ($n$-of-$n$).
+   - *Recommendation:* Implement **Shamir's Secret Sharing (SSSS)** to support $k$-of-$n$ threshold recovery (e.g., 3-of-5 custodians required).
+5. **Authentication and Authorization:**
+   - *Current Implementation:* The API does not enforce user authentication or role-based access control (RBAC). Any client on the network can approve recovery requests.
+   - *Recommendation:* Implement OpenID Connect / JWT authentication, role-based authorization for custodians, and multi-party authorization (multi-signature) for recovery approvals.
+6. **Post-Quantum Cryptography (PQC):**
+   - *Current Implementation:* Symmetric 256-bit AES encryption offers high security against classical and Grover-accelerated brute-force attacks. However, the system does not implement quantum-resistant public-key mechanisms.
+   - *Recommendation:* Adopt standardized post-quantum algorithms (e.g., NIST FIPS 203 ML-KEM for key encapsulation and FIPS 204 ML-DSA for digital signatures).
+
+---
+
+## 👨‍💻 Authors & License
+
+- **Author:** Chetan BN ([@chetanXglitch](https://github.com/chetanXglitch))
+- **Project:** [Quantum Vault](https://github.com/chetanXglitch/quantum-vault)
+- **License:** ISC
+

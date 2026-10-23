@@ -79,7 +79,7 @@ function storeFragments(fileId, fragments, iv) {
 
 
     // -------------------------------------------------
-    // PART 3 → RAM
+    // PART 3 → RAM and Custodian Partition
     // -------------------------------------------------
 
     memoryFragments.set(
@@ -87,21 +87,32 @@ function storeFragments(fileId, fragments, iv) {
         fragments.fragment3
     );
 
-
-    // -------------------------------------------------
-    // IV → Filesystem
-    // -------------------------------------------------
-
-    const ivPath = path.join(
+    const part3Path = path.join(
         keysPath,
-        `${fileId}.iv`
+        `${fileId}.part3`
     );
 
     fs.writeFileSync(
-        ivPath,
-        iv.toString("base64")
+        part3Path,
+        fragments.fragment3.toString("base64")
     );
 
+
+    // -------------------------------------------------
+    // IV → Filesystem (if provided)
+    // -------------------------------------------------
+
+    if (iv) {
+        const ivPath = path.join(
+            keysPath,
+            `${fileId}.iv`
+        );
+
+        fs.writeFileSync(
+            ivPath,
+            Buffer.isBuffer(iv) ? iv.toString("base64") : Buffer.from(iv).toString("base64")
+        );
+    }
 
     console.log(
         `✅ Fragments and IV stored for ${fileId}`
@@ -131,7 +142,7 @@ function getFragments(fileId) {
     );
 
 
-    // Check that every required component exists
+    // Check that every required key fragment component exists
     const part1Exists =
         fs.existsSync(part1Path);
 
@@ -166,14 +177,12 @@ function getFragments(fileId) {
     );
 
 
-    // If anything is missing, reconstruction is impossible
+    // If any key fragment is missing, reconstruction is impossible
     if (
         !part1Exists ||
         !part2Exists ||
-        !part3Exists ||
-        !ivExists
+        !part3Exists
     ) {
-
         return null;
     }
 
@@ -213,16 +222,19 @@ function getFragments(fileId) {
 
 
     // -------------------------------------------------
-    // Read IV
+    // Read IV (if present)
     // -------------------------------------------------
 
-    const iv = Buffer.from(
-        fs.readFileSync(
-            ivPath,
-            "utf8"
-        ),
-        "base64"
-    );
+    let iv = null;
+    if (ivExists) {
+        iv = Buffer.from(
+            fs.readFileSync(
+                ivPath,
+                "utf8"
+            ),
+            "base64"
+        );
+    }
 
 
     return {
@@ -230,6 +242,30 @@ function getFragments(fileId) {
         fragment2,
         fragment3,
         iv
+    };
+}
+
+
+// =====================================================
+// GET FRAGMENT AVAILABILITY (FOR STATUS / UI)
+// =====================================================
+
+function getFragmentAvailability(fileId) {
+    const part1Path = path.join(keysPath, `${fileId}.part1`);
+    const part2Path = path.join(backupPath, `${fileId}.part2`);
+    const ivPath = path.join(keysPath, `${fileId}.iv`);
+
+    const part1 = fs.existsSync(part1Path);
+    const part2 = fs.existsSync(part2Path);
+    const part3 = memoryFragments.has(fileId);
+    const hasIv = fs.existsSync(ivPath);
+
+    return {
+        part1Disk: part1,
+        part2Backup: part2,
+        part3Ram: part3,
+        ivStored: hasIv,
+        canReconstruct: part1 && part2 && part3
     };
 }
 
@@ -306,10 +342,17 @@ function destroyFragments(fileId) {
     // PART 3
     // -------------------------------------------------
 
+    const part3Path = path.join(
+        keysPath,
+        `${fileId}.part3`
+    );
+
+    if (fs.existsSync(part3Path)) {
+        fs.unlinkSync(part3Path);
+    }
+
     if (memoryFragments.has(fileId)) {
-
         memoryFragments.delete(fileId);
-
         console.log(
             "PART 3 destroyed from RAM"
         );
@@ -329,5 +372,6 @@ function destroyFragments(fileId) {
 module.exports = {
     storeFragments,
     getFragments,
-    destroyFragments
+    destroyFragments,
+    getFragmentAvailability
 };

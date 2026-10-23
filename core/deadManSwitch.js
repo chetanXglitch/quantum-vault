@@ -34,31 +34,32 @@ function getStatePath(fileId) {
 // START DEAD-MAN SWITCH
 // =====================================================
 
-function startDeadManSwitch(fileId) {
+function startDeadManSwitch(fileId, customTimeoutMs) {
 
     // Stop old timer if it exists
     stopDeadManSwitch(fileId);
 
+    const timeout = (typeof customTimeoutMs === "number" && customTimeoutMs > 0)
+        ? customTimeoutMs
+        : DEADMAN_TIMEOUT;
 
-    const deadline =
-        Date.now() + DEADMAN_TIMEOUT;
+    const deadline = Date.now() + timeout;
 
-
-    // Save deadline to disk
+    // Save deadline and configured timeout to disk
     fs.writeFileSync(
         getStatePath(fileId),
         JSON.stringify({
             fileId: fileId,
             deadline: deadline,
-            status: "active"
+            status: "active",
+            timeoutDuration: timeout,
+            lastCheckIn: Date.now()
         }, null, 2)
     );
 
-
     console.log(
-        `⏱️ Dead-Man Switch started for ${fileId}`
+        `⏱️ Dead-Man Switch started for ${fileId} with timeout ${timeout}ms`
     );
-
 
     scheduleTimer(
         fileId,
@@ -168,22 +169,102 @@ function handleExpiration(fileId) {
 
 
 // =====================================================
-// CHECK-IN
+// CHECK-IN & CUSTOM TIMING
 // =====================================================
 
-function checkIn(fileId) {
+function checkIn(fileId, customTimeoutMs, allowReactivate = true) {
+    const statePath = getStatePath(fileId);
+    if (!fs.existsSync(statePath)) {
+        console.log(
+            `⚠️ Check-in rejected: No switch found for ${fileId}`
+        );
+        return false;
+    }
+
+    let existingTimeout = DEADMAN_TIMEOUT;
+    try {
+        const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+        if (state.timeoutDuration && typeof state.timeoutDuration === "number") {
+            existingTimeout = state.timeoutDuration;
+        }
+        if (state.status !== "active" && !allowReactivate) {
+            console.log(
+                `⚠️ Check-in rejected: Switch for ${fileId} is ${state.status}`
+            );
+            return false;
+        }
+    } catch (e) {
+        return false;
+    }
+
+    const effectiveTimeout = (typeof customTimeoutMs === "number" && customTimeoutMs > 0)
+        ? customTimeoutMs
+        : existingTimeout;
 
     console.log(
-        `✅ Check-in received for ${fileId}`
+        `✅ Check-in received for ${fileId} (Timeout: ${effectiveTimeout}ms)`
     );
-
 
     startDeadManSwitch(
-        fileId
+        fileId,
+        effectiveTimeout
     );
 
-
     return true;
+}
+
+
+// =====================================================
+// GET DEAD-MAN SWITCH STATUS
+// =====================================================
+
+function getDeadManSwitchStatus(fileId) {
+    const statePath = getStatePath(fileId);
+    if (!fs.existsSync(statePath)) {
+        return null;
+    }
+    try {
+        const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+        const now = Date.now();
+        const remainingMs = Math.max(0, (state.deadline || 0) - now);
+        const timeoutDuration = (state.timeoutDuration && typeof state.timeoutDuration === "number")
+            ? state.timeoutDuration
+            : DEADMAN_TIMEOUT;
+
+        return {
+            fileId,
+            status: state.status,
+            deadline: state.deadline,
+            remainingMs: state.status === "active" ? remainingMs : 0,
+            timeoutDuration: timeoutDuration,
+            lastCheckIn: state.lastCheckIn || null,
+            expiredAt: state.expiredAt || null
+        };
+    } catch (err) {
+        return null;
+    }
+}
+
+
+// =====================================================
+// GET ALL DEAD-MAN SWITCHES
+// =====================================================
+
+function getAllDeadManSwitches() {
+    if (!fs.existsSync(stateDir)) return [];
+    try {
+        const files = fs.readdirSync(stateDir);
+        const switches = [];
+        for (const f of files) {
+            if (!f.endsWith(".json")) continue;
+            const fileId = f.replace(".json", "");
+            const status = getDeadManSwitchStatus(fileId);
+            if (status) switches.push(status);
+        }
+        return switches;
+    } catch (err) {
+        return [];
+    }
 }
 
 
@@ -293,9 +374,10 @@ function restoreDeadManSwitches() {
 
 
 module.exports = {
-
     startDeadManSwitch,
     checkIn,
     stopDeadManSwitch,
-    restoreDeadManSwitches
+    restoreDeadManSwitches,
+    getDeadManSwitchStatus,
+    getAllDeadManSwitches
 };
